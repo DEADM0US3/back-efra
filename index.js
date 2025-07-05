@@ -55,21 +55,55 @@ function verificarToken(req, res, next) {
   });
 }
 
-// — POST /login
-app.post('/login', async (req, res) => {
+// — POST /register
+app.post('/register', async (req, res) => {
   const { usuario, password } = req.body;
+
   if (!usuario || !password)
     return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
 
-  db.get(`SELECT * FROM usuarios WHERE usuario = ?`, [usuario], async (err, row) => {
-    if (err) return res.status(500).json({ error: 'Error en la DB' });
-    if (!row) return res.status(401).json({ error: 'Credenciales inválidas' });
-    const ok = await bcrypt.compare(password, row.password);
-    if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
-    const token = jwt.sign({ id: row.id, usuario: row.usuario }, JWT_SECRET, { expiresIn: '2h' });
-    res.json({ token });
-  });
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    db.run(
+        `INSERT INTO usuarios (usuario, password) VALUES (?, ?)`,
+        [usuario, hashedPassword],
+        function (err) {
+          if (err) {
+            if (err.code === 'SQLITE_CONSTRAINT') {
+              return res.status(409).json({ error: 'Usuario ya existe' });
+            }
+            return res.status(500).json({ error: 'Error al registrar usuario' });
+          }
+
+          res.status(201).json({
+            success: true,
+            mensaje: 'Usuario registrado con éxito',
+            userId: this.lastID,
+          });
+        }
+    );
+  } catch (error) {
+    console.error('Error al registrar:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
+
+  // — POST /login
+  app.post('/login', async (req, res) => {
+    const { usuario, password } = req.body;
+    if (!usuario || !password)
+      return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
+
+    db.get(`SELECT * FROM usuarios WHERE usuario = ?`, [usuario], async (err, row) => {
+      if (err) return res.status(500).json({ error: 'Error en la DB' });
+      if (!row) return res.status(401).json({ error: 'Credenciales inválidas' });
+      const ok = await bcrypt.compare(password, row.password);
+      if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
+      const token = jwt.sign({ id: row.id, usuario: row.usuario }, JWT_SECRET, { expiresIn: '2h' });
+      res.json({ token });
+    });
+  });
 
 // — POST /formulario
 app.post('/formulario', async (req, res) => {
